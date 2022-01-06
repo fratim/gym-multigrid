@@ -65,8 +65,8 @@ class MADivided(MultiGridEnv):
             else:
                 box_strength = np.random.randint(0, self.max_box_strength+1)
 
+            self.grid.set(int(self.width / 2), int(self.height / 2), None)
             box_obj = Box(self.objects, color="blue", strength=box_strength)
-
             self.put_obj(box_obj, int(self.width / 2), int(self.height / 2))
             self.box_obj = box_obj
 

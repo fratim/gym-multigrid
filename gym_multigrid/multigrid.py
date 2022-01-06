@@ -7,6 +7,7 @@ from gym.utils import seeding
 from .rendering import *
 from .window import Window
 import numpy as np
+import copy
 
 #
 ENCODE_DIM = 3
@@ -46,16 +47,10 @@ class World:
         'unseen': 0,
         'empty': 1,
         'wall': 2,
-        'floor': 3,
-        'door': 4,
-        'key': 5,
-        'ball': 6,
-        'box': 7,
-        'goal': 8,
-        'lava': 9,
-        'objgoal': 10,
-        'switch': 11,
-        'agent': 12
+        'door': 3,
+        'box': 4,
+        'goal': 5,
+        'agent': 6
     }
     IDX_TO_OBJECT = dict(zip(OBJECT_TO_IDX.values(), OBJECT_TO_IDX.keys()))
 
@@ -114,13 +109,13 @@ class WorldObj:
         """Can the agent see behind this object?"""
         return True
 
-    def toggle(self, env, pos):
+    def toggle(self):
         """Method to trigger/toggle an action this object performs"""
         return False
 
     def encode(self, world):
         """Encode the a description of this object as a 3-tuple of integers"""
-        return (world.OBJECT_TO_IDX[self.type], world.COLOR_TO_IDX[self.color], 0)
+        return np.array((world.OBJECT_TO_IDX[self.type], world.COLOR_TO_IDX[self.color], 0))
 
     @staticmethod
     def decode(type_idx, color_idx, state):
@@ -190,7 +185,7 @@ class Box(WorldObj):
         # Horizontal slit
         fill_coords(img, point_in_rect(0.16, 0.84, 0.47, 0.53), c)
 
-    def toggle(self, env, pos):
+    def toggle(self):
         # decrease strength of box
         if self.strength > 0:
             self.strength -= 1
@@ -203,7 +198,7 @@ class Box(WorldObj):
     def encode(self, world):
         """Encode the a description of this object as a 3-tuple of integers"""
 
-        return (world.OBJECT_TO_IDX[self.type], world.COLOR_TO_IDX[self.color], self.strength)
+        return np.array((world.OBJECT_TO_IDX[self.type], world.COLOR_TO_IDX[self.color], self.strength))
 
 
 class Agent(WorldObj):
@@ -231,9 +226,7 @@ class Agent(WorldObj):
 
     def encode(self, world):
         """Encode the a description of this object as a 3-tuple of integers"""
-        return (world.OBJECT_TO_IDX[self.type],
-                world.COLOR_TO_IDX[self.color],
-                self.dir)
+        return np.array((world.OBJECT_TO_IDX[self.type], world.COLOR_TO_IDX[self.color], self.dir))
 
     @property
     def dir_vec(self):
@@ -338,6 +331,82 @@ class Agent(WorldObj):
 
         return self.relative_coords(x, y) is not None
 
+    def can_overlap(self):
+        """
+        can the agent overlap?
+        """
+        return True
+
+class GridCell:
+    value = None
+
+    def __init__(self):
+        self.value = []
+
+    def set(self, v):
+        if v is None:
+            self.value = []
+        else:
+            assert isinstance(v, list)
+            self.value = copy.deepcopy(v)
+
+    def add(self, obj):
+        assert not isinstance(obj, list)
+
+        # check if object to be added is a wall, if wall is already given, return
+        if isinstance(obj, Wall):
+            for item in self.value:
+                if isinstance(item, Wall):
+                    return
+
+        assert self.can_overlap()
+
+        self.value.append(obj)
+
+    def can_overlap(self):
+        for item in self.value:
+            if not item.can_overlap():
+                return False
+        return True
+
+    def remove(self, obj):
+        assert obj in self.value
+        self.value.remove(obj)
+
+    def get(self):
+        return self.value if self.value != [] else None
+
+    def isGoal(self):
+        for item in self.value:
+            if isinstance(item, Goal):
+                return True
+        return False
+
+    def toggle(self):
+        for item in self.value:
+            item.toggle()
+
+
+    def encode(self, world):
+        # TODO ensure that cells are always encoded independently of order in which objects are stored (order is not relevant)
+        # TODO implement this for three overlapping objects (2 agents + box)
+
+        if len(self.value) == 0:
+            return (world.OBJECT_TO_IDX['empty'], 0, 0)
+        else:
+            encoding = self.value[0].encode(world)
+            assert not (encoding > 10).any()
+            encoding *= 10
+
+            if len(self.value) == 1:
+                return tuple(encoding)
+            elif len(self.value) == 2:
+                encoding += self.value[1].encode(world)
+                return tuple(encoding)
+            else:
+                raise NotImplementedError
+
+
 
 class Grid:
     """
@@ -354,30 +423,34 @@ class Grid:
         self.width = width
         self.height = height
 
-        self.grid = [None] * width * height
+        self.grid = [GridCell() for _ in range(width*height)]
 
     def __contains__(self, key):
         if isinstance(key, WorldObj):
-            for e in self.grid:
-                if e is key:
-                    return True
+            raise NotImplementedError
+            # for e in self.grid:
+            #     if e is key:
+            #         return True
         elif isinstance(key, tuple):
-            for e in self.grid:
-                if e is None:
-                    continue
-                if (e.color, e.type) == key:
-                    return True
-                if key[0] is None and key[1] == e.type:
-                    return True
-        return False
+            raise NotImplementedError
+            # for e in self.grid:
+            #     if e is None:
+            #         continue
+            #     if (e.color, e.type) == key:
+            #         return True
+            #     if key[0] is None and key[1] == e.type:
+        #     #         return True
+        # return False
 
     def __eq__(self, other):
-        grid1 = self.encode()
-        grid2 = other.encode()
-        return np.array_equal(grid2, grid1)
+        raise NotImplementedError
+        # grid1 = self.encode()
+        # grid2 = other.encode()
+        # return np.array_equal(grid2, grid1)
 
     def __ne__(self, other):
-        return not self == other
+        raise NotImplementedError
+        # return not self == other
 
     def copy(self):
         from copy import deepcopy
@@ -386,30 +459,50 @@ class Grid:
     def set(self, i, j, v):
         assert i >= 0 and i < self.width
         assert j >= 0 and j < self.height
-        self.grid[j * self.width + i] = v
+        self.grid[j * self.width + i].set(v)
+
+    def add(self, i, j, obj):
+        assert i >= 0 and i < self.width
+        assert j >= 0 and j < self.height
+        self.grid[j * self.width + i].add(obj)
+
+    def remove(self, i, j, obj):
+        assert i >= 0 and i < self.width
+        assert j >= 0 and j < self.height
+        self.grid[j * self.width + i].remove(obj)
 
     def get(self, i, j):
         assert i >= 0 and i < self.width
         assert j >= 0 and j < self.height
+        return self.grid[j * self.width + i].get()
+
+    def get_cell(self, i, j):
+        assert i >= 0 and i < self.width
+        assert j >= 0 and j < self.height
         return self.grid[j * self.width + i]
+
+    def encode_cell(self, i, j, world):
+        assert i >= 0 and i < self.width
+        assert j >= 0 and j < self.height
+        return self.grid[j * self.width + i].encode(world)
 
     def horz_wall(self, world, x, y, length=None, obj_type=Wall):
         if length is None:
             length = self.width - x
         for i in range(0, length):
-            self.set(x + i, y, obj_type(world))
+            self.add(x + i, y, obj_type(world))
 
     def vert_wall(self, world, x, y, length=None, obj_type=Wall):
         if length is None:
             length = self.height - y
         for j in range(0, length):
-            self.set(x, y + j, obj_type(world))
+            self.add(x, y + j, obj_type(world))
 
     def wall_rect(self, world, x, y, w, h):
         self.horz_wall(world, x, y, w)
         self.horz_wall(world, x, y + h - 1, w)
-        self.vert_wall(world, x, y, h)
-        self.vert_wall(world, x + w - 1, y, h)
+        self.vert_wall(world, x, y+1, h-2)
+        self.vert_wall(world, x + w - 1, y+1, h-2)
 
     def rotate_left(self):
         """
@@ -451,7 +544,7 @@ class Grid:
     def render_tile(
             cls,
             world,
-            obj,
+            cell,
             tile_size=TILE_PIXELS,
             subdivs=3
     ):
@@ -459,7 +552,7 @@ class Grid:
         Render a tile and cache the result
         """
 
-        key = obj.encode(world) if obj else (0, 0, 0)
+        key = cell.encode(world)
 
         if key in cls.tile_cache:
             return cls.tile_cache[key]
@@ -470,8 +563,9 @@ class Grid:
         fill_coords(img, point_in_rect(0, 0.031, 0, 1), (100, 100, 100))
         fill_coords(img, point_in_rect(0, 1, 0, 0.031), (100, 100, 100))
 
-        if obj != None:
-            obj.render(img)
+        if cell.get():
+            for itm in cell.get():
+                itm.render(img)
 
         # Downsample the image to perform supersampling/anti-aliasing
         img = downsample(img, subdivs)
@@ -501,9 +595,8 @@ class Grid:
         # Render the grid
         for j in range(0, self.height):
             for i in range(0, self.width):
-                cell = self.get(i, j)
+                cell = self.get_cell(i, j)
 
-                # agent_here = np.array_equal(agent_pos, (i, j))
                 tile_img = Grid.render_tile(
                     world,
                     cell,
@@ -524,18 +617,11 @@ class Grid:
         """
 
         array = np.zeros((self.width, self.height, ENCODE_DIM), dtype='uint8')
+        ## TODO revert this to uint8?
 
         for i in range(self.width):
             for j in range(self.height):
-                v = self.get(i, j)
-
-                if v is None:
-                    array[i, j, 0] = world.OBJECT_TO_IDX['empty']
-                    array[i, j, 1] = 0
-                    array[i, j, 2] = 0
-
-                else:
-                    array[i, j, :] = v.encode(world)
+                array[i, j, :] = self.encode_cell(i, j, world)
 
         return array
 
@@ -863,7 +949,7 @@ class MultiGridEnv(gym.Env):
 
         pos = self.get_possible_location(top, size, reject_fn)
 
-        self.grid.set(*pos, obj)
+        self.grid.add(*pos, obj)
 
         if obj is not None:
             obj.init_pos = pos
@@ -876,7 +962,7 @@ class MultiGridEnv(gym.Env):
         Put an object at a specific position in the grid
         """
 
-        self.grid.set(i, j, obj)
+        self.grid.add(i, j, obj)
         obj.init_pos = (i, j)
         obj.cur_pos = (i, j)
 
@@ -926,7 +1012,7 @@ class MultiGridEnv(gym.Env):
             fwd_pos = self.agents[i].front_pos
 
             # Get the contents of the cell in front of the agent
-            fwd_cell = self.grid.get(*fwd_pos)
+            fwd_cell = self.grid.get_cell(*fwd_pos)
 
             # Rotate left
             if actions[i] == self.actions.left:
@@ -941,25 +1027,21 @@ class MultiGridEnv(gym.Env):
             # Move forward
             elif actions[i] == self.actions.forward:
                 if fwd_cell is not None:
-                    if fwd_cell.type == 'goal':
+                    if fwd_cell.isGoal():
                         done = True
                         rewards[i] = self._reward()
                     elif fwd_cell.can_overlap():
-                        self.grid.set(*fwd_pos, self.agents[i])
-                        self.grid.set(*self.agents[i].pos, None)
+                        self.grid.add(*fwd_pos, self.agents[i])
+                        self.grid.remove(*self.agents[i].pos, self.agents[i])
                         self.agents[i].pos = fwd_pos
-                    elif fwd_cell.type == 'switch':
-                        raise NotImplementedError
-                        #self._handle_switch(i, rewards, fwd_pos, fwd_cell)
-                elif fwd_cell is None:
-                    self.grid.set(*fwd_pos, self.agents[i])
-                    self.grid.set(*self.agents[i].pos, None)
+                elif fwd_cell.get() is None:
+                    self.grid.add(*fwd_pos, self.agents[i])
+                    self.grid.remove(*self.agents[i].pos, self.agents[i]) # TODO define a move agent function instead
                     self.agents[i].pos = fwd_pos
 
             # Toggle/activate an object
             elif actions[i] == self.actions.toggle:
-                if fwd_cell:
-                    fwd_cell.toggle(self, fwd_pos)
+                fwd_cell.toggle()
 
         if self.step_count >= self.max_steps:
             done = True
