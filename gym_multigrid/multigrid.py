@@ -8,6 +8,9 @@ from .rendering import *
 from .window import Window
 import numpy as np
 
+#
+ENCODE_DIM = 3
+
 # Size in pixels of a tile in the full-scale human view
 TILE_PIXELS = 32
 
@@ -25,10 +28,6 @@ COLOR_NAMES = sorted(list(COLORS.keys()))
 
 class World:
 
-    encode_dim = 6
-
-    normalize_obs = 1
-
     # Used to map colors to integers
     COLOR_TO_IDX = {
         'red': 0,
@@ -42,6 +41,7 @@ class World:
     IDX_TO_COLOR = dict(zip(COLOR_TO_IDX.values(), COLOR_TO_IDX.keys()))
 
     # Map of object type to integers
+    # evaluate whther it makes sense that each agent has its own "type encoding" to maintain 3-dim encoding structure
     OBJECT_TO_IDX = {
         'unseen': 0,
         'empty': 1,
@@ -53,35 +53,10 @@ class World:
         'box': 7,
         'goal': 8,
         'lava': 9,
-        'agent': 10,
-        'objgoal': 11,
-        'switch': 12
+        'objgoal': 10,
+        'switch': 11,
+        'agent': 12
     }
-    IDX_TO_OBJECT = dict(zip(OBJECT_TO_IDX.values(), OBJECT_TO_IDX.keys()))
-
-
-class SmallWorld:
-
-    encode_dim = 3
-
-    normalize_obs = 1/3
-
-    COLOR_TO_IDX = {
-        'red': 0,
-        'green': 1,
-        'blue': 2,
-        'grey': 3
-    }
-
-    IDX_TO_COLOR = dict(zip(COLOR_TO_IDX.values(), COLOR_TO_IDX.keys()))
-
-    OBJECT_TO_IDX = {
-        'unseen': 0,
-        'empty': 1,
-        'wall': 2,
-        'agent': 3
-    }
-
     IDX_TO_OBJECT = dict(zip(OBJECT_TO_IDX.values(), OBJECT_TO_IDX.keys()))
 
 
@@ -143,12 +118,9 @@ class WorldObj:
         """Method to trigger/toggle an action this object performs"""
         return False
 
-    def encode(self, world, current_agent=False):
+    def encode(self, world):
         """Encode the a description of this object as a 3-tuple of integers"""
-        if world.encode_dim==3:
-            return (world.OBJECT_TO_IDX[self.type], world.COLOR_TO_IDX[self.color], 0)
-        else:
-            return (world.OBJECT_TO_IDX[self.type], world.COLOR_TO_IDX[self.color], 0, 0, 0, 0)
+        return (world.OBJECT_TO_IDX[self.type], world.COLOR_TO_IDX[self.color], 0)
 
     @staticmethod
     def decode(type_idx, color_idx, state):
@@ -157,23 +129,6 @@ class WorldObj:
     def render(self, r):
         """Draw this object with the given renderer"""
         raise NotImplementedError
-
-
-class ObjectGoal(WorldObj):
-    def __init__(self, world, index, target_type='ball', reward=1, color=None):
-        if color is None:
-            super().__init__(world, 'objgoal', world.IDX_TO_COLOR[index])
-        else:
-            super().__init__(world, 'objgoal', world.IDX_TO_COLOR[color])
-        self.target_type = target_type
-        self.index = index
-        self.reward = reward
-
-    def can_overlap(self):
-        return False
-
-    def render(self, img):
-        fill_coords(img, point_in_rect(0, 1, 0, 1), COLORS[self.color])
 
 
 class Goal(WorldObj):
@@ -191,63 +146,6 @@ class Goal(WorldObj):
     def render(self, img):
         fill_coords(img, point_in_rect(0, 1, 0, 1), COLORS[self.color])
 
-class Switch(WorldObj):
-    def __init__(self, world):
-        super().__init__(world, 'switch', world.IDX_TO_COLOR[0])
-
-    def can_overlap(self):
-        return True
-
-    def render(self, img):
-        fill_coords(img, point_in_rect(0, 1, 0, 1), COLORS[self.color])
-
-
-class Floor(WorldObj):
-    """
-    Colored floor tile the agent can walk over
-    """
-
-    def __init__(self, world, color='blue'):
-        super().__init__(world, 'floor', color)
-
-    def can_overlap(self):
-        return True
-
-    def render(self, r):
-        # Give the floor a pale color
-        c = COLORS[self.color]
-        r.setLineColor(100, 100, 100, 0)
-        r.setColor(*c / 2)
-        r.drawPolygon([
-            (1, TILE_PIXELS),
-            (TILE_PIXELS, TILE_PIXELS),
-            (TILE_PIXELS, 1),
-            (1, 1)
-        ])
-
-
-class Lava(WorldObj):
-    def __init__(self, world):
-        super().__init__(world, 'lava', 'red')
-
-    def can_overlap(self):
-        return True
-
-    def render(self, img):
-        c = (255, 128, 0)
-
-        # Background color
-        fill_coords(img, point_in_rect(0, 1, 0, 1), c)
-
-        # Little waves
-        for i in range(3):
-            ylo = 0.3 + 0.2 * i
-            yhi = 0.4 + 0.2 * i
-            fill_coords(img, point_in_line(0.1, ylo, 0.3, yhi, r=0.03), (0, 0, 0))
-            fill_coords(img, point_in_line(0.3, yhi, 0.5, ylo, r=0.03), (0, 0, 0))
-            fill_coords(img, point_in_line(0.5, ylo, 0.7, yhi, r=0.03), (0, 0, 0))
-            fill_coords(img, point_in_line(0.7, yhi, 0.9, ylo, r=0.03), (0, 0, 0))
-
 
 class Wall(WorldObj):
     def __init__(self, world, color='grey'):
@@ -260,111 +158,27 @@ class Wall(WorldObj):
         fill_coords(img, point_in_rect(0, 1, 0, 1), COLORS[self.color])
 
 
-class Door(WorldObj):
-    def __init__(self, world, color, is_open=False, is_locked=False):
-        super().__init__(world, 'door', color)
-        self.is_open = is_open
-        self.is_locked = is_locked
+class Box(WorldObj):
+    def __init__(self, world, color, contains=None, strength=2):
+        super(Box, self).__init__(world,'box', color)
+        self.contains = contains
+        self.strength = strength
+
+        if self.strength == 0:
+            self.color = "green"
 
     def can_overlap(self):
         """The agent can only walk over this cell when the door is open"""
-        return self.is_open
 
-    def see_behind(self):
-        return self.is_open
+        assert self.strength >= 0
 
-    def toggle(self, env, pos):
-        # If the player has the right key to open the door
-        if self.is_locked:
-            if isinstance(env.carrying, Key) and env.carrying.color == self.color:
-                self.is_locked = False
-                self.is_open = True
-                return True
+        if self.strength == 0:
+            return True
+        else:
             return False
 
-        self.is_open = not self.is_open
-        return True
-
-    def encode(self, world, current_agent=False):
-        """Encode the a description of this object as a 3-tuple of integers"""
-
-        # State, 0: open, 1: closed, 2: locked
-        if self.is_open:
-            state = 0
-        elif self.is_locked:
-            state = 2
-        elif not self.is_open:
-            state = 1
-
-        return (world.OBJECT_TO_IDX[self.type], world.COLOR_TO_IDX[self.color], state, 0, 0, 0)
-
-    def render(self, img):
-        c = COLORS[self.color]
-
-        if self.is_open:
-            fill_coords(img, point_in_rect(0.88, 1.00, 0.00, 1.00), c)
-            fill_coords(img, point_in_rect(0.92, 0.96, 0.04, 0.96), (0, 0, 0))
-            return
-
-        # Door frame and door
-        if self.is_locked:
-            fill_coords(img, point_in_rect(0.00, 1.00, 0.00, 1.00), c)
-            fill_coords(img, point_in_rect(0.06, 0.94, 0.06, 0.94), 0.45 * np.array(c))
-
-            # Draw key slot
-            fill_coords(img, point_in_rect(0.52, 0.75, 0.50, 0.56), c)
-        else:
-            fill_coords(img, point_in_rect(0.00, 1.00, 0.00, 1.00), c)
-            fill_coords(img, point_in_rect(0.04, 0.96, 0.04, 0.96), (0, 0, 0))
-            fill_coords(img, point_in_rect(0.08, 0.92, 0.08, 0.92), c)
-            fill_coords(img, point_in_rect(0.12, 0.88, 0.12, 0.88), (0, 0, 0))
-
-            # Draw door handle
-            fill_coords(img, point_in_circle(cx=0.75, cy=0.50, r=0.08), c)
-
-
-class Key(WorldObj):
-    def __init__(self, world, color='blue'):
-        super(Key, self).__init__(world, 'key', color)
-
     def can_pickup(self):
-        return True
-
-    def render(self, img):
-        c = COLORS[self.color]
-
-        # Vertical quad
-        fill_coords(img, point_in_rect(0.50, 0.63, 0.31, 0.88), c)
-
-        # Teeth
-        fill_coords(img, point_in_rect(0.38, 0.50, 0.59, 0.66), c)
-        fill_coords(img, point_in_rect(0.38, 0.50, 0.81, 0.88), c)
-
-        # Ring
-        fill_coords(img, point_in_circle(cx=0.56, cy=0.28, r=0.190), c)
-        fill_coords(img, point_in_circle(cx=0.56, cy=0.28, r=0.064), (0, 0, 0))
-
-
-class Ball(WorldObj):
-    def __init__(self, world, index=0, reward=1):
-        super(Ball, self).__init__(world, 'ball', world.IDX_TO_COLOR[index])
-        self.index = index
-        self.reward = reward
-
-    def can_pickup(self):
-        return True
-
-    def render(self, img):
-        fill_coords(img, point_in_circle(0.5, 0.5, 0.31), COLORS[self.color])
-
-
-class Box(WorldObj):
-    def __init__(self, world, color, contains=None):
-        super(Box, self).__init__(world, 'box', color)
-        self.contains = contains
-
-    def can_pickup(self):
-        return True
+        return False
 
     def render(self, img):
         c = COLORS[self.color]
@@ -377,9 +191,19 @@ class Box(WorldObj):
         fill_coords(img, point_in_rect(0.16, 0.84, 0.47, 0.53), c)
 
     def toggle(self, env, pos):
-        # Replace the box by its contents
-        env.grid.set(*pos, self.contains)
+        # decrease strength of box
+        if self.strength > 0:
+            self.strength -= 1
+
+        if self.strength == 0:
+            self.color = "green"
+
         return True
+    
+    def encode(self, world):
+        """Encode the a description of this object as a 3-tuple of integers"""
+
+        return (world.OBJECT_TO_IDX[self.type], world.COLOR_TO_IDX[self.color], self.strength)
 
 
 class Agent(WorldObj):
@@ -405,23 +229,11 @@ class Agent(WorldObj):
         tri_fn = rotate_fn(tri_fn, cx=0.5, cy=0.5, theta=0.5 * math.pi * self.dir)
         fill_coords(img, tri_fn, c)
 
-    def encode(self, world, current_agent=False):
+    def encode(self, world):
         """Encode the a description of this object as a 3-tuple of integers"""
-        if world.encode_dim==3:
-            return (world.OBJECT_TO_IDX[self.type], world.COLOR_TO_IDX[self.color], self.dir)
-        elif self.carrying:
-            if current_agent:
-                return (world.OBJECT_TO_IDX[self.type], world.COLOR_TO_IDX[self.color], world.OBJECT_TO_IDX[self.carrying.type],
-                        world.COLOR_TO_IDX[self.carrying.color], self.dir, 1)
-            else:
-                return (world.OBJECT_TO_IDX[self.type], world.COLOR_TO_IDX[self.color], world.OBJECT_TO_IDX[self.carrying.type],
-                        world.COLOR_TO_IDX[self.carrying.color], self.dir, 0)
-
-        else:
-            if current_agent:
-                return (world.OBJECT_TO_IDX[self.type], world.COLOR_TO_IDX[self.color], 0, 0, self.dir, 1)
-            else:
-                return (world.OBJECT_TO_IDX[self.type], world.COLOR_TO_IDX[self.color], 0, 0, self.dir, 0)
+        return (world.OBJECT_TO_IDX[self.type],
+                world.COLOR_TO_IDX[self.color],
+                self.dir)
 
     @property
     def dir_vec(self):
@@ -593,11 +405,11 @@ class Grid:
         for j in range(0, length):
             self.set(x, y + j, obj_type(world))
 
-    def wall_rect(self, x, y, w, h):
-        self.horz_wall(x, y, w)
-        self.horz_wall(x, y + h - 1, w)
-        self.vert_wall(x, y, h)
-        self.vert_wall(x + w - 1, y, h)
+    def wall_rect(self, world, x, y, w, h):
+        self.horz_wall(world, x, y, w)
+        self.horz_wall(world, x, y + h - 1, w)
+        self.vert_wall(world, x, y, h)
+        self.vert_wall(world, x + w - 1, y, h)
 
     def rotate_left(self):
         """
@@ -640,7 +452,6 @@ class Grid:
             cls,
             world,
             obj,
-            highlights=[],
             tile_size=TILE_PIXELS,
             subdivs=3
     ):
@@ -648,8 +459,7 @@ class Grid:
         Render a tile and cache the result
         """
 
-        key = (*highlights, tile_size)
-        key = obj.encode(world) + key if obj else key
+        key = obj.encode(world) if obj else (0, 0, 0)
 
         if key in cls.tile_cache:
             return cls.tile_cache[key]
@@ -663,11 +473,6 @@ class Grid:
         if obj != None:
             obj.render(img)
 
-        # Highlight the cell  if needed
-        if len(highlights) > 0:
-            for h in highlights:
-                highlight_img(img, color=COLORS[world.IDX_TO_COLOR[h%len(world.IDX_TO_COLOR)]])
-
         # Downsample the image to perform supersampling/anti-aliasing
         img = downsample(img, subdivs)
 
@@ -679,8 +484,7 @@ class Grid:
     def render(
             self,
             world,
-            tile_size,
-            highlight_masks=None
+            tile_size
     ):
         """
         Render this grid at a given scale
@@ -703,7 +507,6 @@ class Grid:
                 tile_img = Grid.render_tile(
                     world,
                     cell,
-                    highlights=[] if highlight_masks is None else highlight_masks[i, j],
                     tile_size=tile_size
                 )
 
@@ -715,159 +518,38 @@ class Grid:
 
         return img
 
-    def encode(self, world, vis_mask=None):
+    def encode(self, world):
         """
         Produce a compact numpy encoding of the grid
         """
 
-        if vis_mask is None:
-            vis_mask = np.ones((self.width, self.height), dtype=bool)
-
-        array = np.zeros((self.width, self.height, world.encode_dim), dtype='uint8')
+        array = np.zeros((self.width, self.height, ENCODE_DIM), dtype='uint8')
 
         for i in range(self.width):
             for j in range(self.height):
-                if vis_mask[i, j]:
-                    v = self.get(i, j)
+                v = self.get(i, j)
 
-                    if v is None:
-                        array[i, j, 0] = world.OBJECT_TO_IDX['empty']
-                        array[i, j, 1] = 0
-                        array[i, j, 2] = 0
-                        if world.encode_dim > 3:
-                            array[i, j, 3] = 0
-                            array[i, j, 4] = 0
-                            array[i, j, 5] = 0
+                if v is None:
+                    array[i, j, 0] = world.OBJECT_TO_IDX['empty']
+                    array[i, j, 1] = 0
+                    array[i, j, 2] = 0
 
-                    else:
-                        array[i, j, :] = v.encode(world)
+                else:
+                    array[i, j, :] = v.encode(world)
 
         return array
 
-    def encode_for_agents(self, world, agent_pos, vis_mask=None):
-        """
-        Produce a compact numpy encoding of the grid
-        """
-        if vis_mask is None:
-            vis_mask = np.ones((self.width, self.height), dtype=bool)
-
-        array = np.zeros((self.width, self.height, world.encode_dim), dtype='uint8')
-
-        for i in range(self.width):
-            for j in range(self.height):
-                if vis_mask[i, j]:
-                    v = self.get(i, j)
-
-                    if v is None:
-                        array[i, j, 0] = world.OBJECT_TO_IDX['empty']
-                        array[i, j, 1] = 0
-                        array[i, j, 2] = 0
-                        if world.encode_dim > 3:
-                            array[i, j, 3] = 0
-                            array[i, j, 4] = 0
-                            array[i, j, 5] = 0
-
-                    else:
-                        array[i, j, :] = v.encode(world, current_agent=np.array_equal(agent_pos, (i, j)))
-
-        return array
-
-    # @staticmethod
-    # def decode(array):
-    #     """
-    #     Decode an array grid encoding back into a grid
-    #     """
-    #
-    #     width, height, channels = array.shape
-    #     assert channels == 3
-    #
-    #     vis_mask = np.ones(shape=(width, height), dtype=np.bool)
-    #
-    #     grid = Grid(width, height)
-    #     for i in range(width):
-    #         for j in range(height):
-    #             type_idx, color_idx, state = array[i, j]
-    #             v = WorldObj.decode(type_idx, color_idx, state)
-    #             grid.set(i, j, v)
-    #             vis_mask[i, j] = (type_idx != OBJECT_TO_IDX['unseen'])
-    #
-    #     return grid, vis_mask
-
-    def process_vis(grid, agent_pos):
-        mask = np.zeros(shape=(grid.width, grid.height), dtype=np.bool)
-
-        mask[agent_pos[0], agent_pos[1]] = True
-
-        for j in reversed(range(0, grid.height)):
-            for i in range(0, grid.width - 1):
-                if not mask[i, j]:
-                    continue
-
-                cell = grid.get(i, j)
-                if cell and not cell.see_behind():
-                    continue
-
-                mask[i + 1, j] = True
-                if j > 0:
-                    mask[i + 1, j - 1] = True
-                    mask[i, j - 1] = True
-
-            for i in reversed(range(1, grid.width)):
-                if not mask[i, j]:
-                    continue
-
-                cell = grid.get(i, j)
-                if cell and not cell.see_behind():
-                    continue
-
-                mask[i - 1, j] = True
-                if j > 0:
-                    mask[i - 1, j - 1] = True
-                    mask[i, j - 1] = True
-
-        for j in range(0, grid.height):
-            for i in range(0, grid.width):
-                if not mask[i, j]:
-                    grid.set(i, j, None)
-
-        return mask
 
 class Actions:
-    available=['still', 'left', 'right', 'forward', 'pickup', 'drop', 'toggle', 'done']
 
-    still = 0
-    # Turn left, turn right, move forward
-    left = 1
-    right = 2
-    forward = 3
-
-    # Pick up an object
-    pickup = 4
-    # Drop an object
-    drop = 5
-    # Toggle/activate an object
-    toggle = 6
-
-    # Done completing task
-    done = 7
-
-class SmallActions:
-    available=['still', 'left', 'right', 'forward']
-
-    # Turn left, turn right, move forward
-    still = 0
-    left = 1
-    right = 2
-    forward = 3
-
-class MineActions:
-    available=['still', 'left', 'right', 'forward', 'build']
+    available=['still', 'left', 'right', 'forward', 'toggle']
 
     still = 0
     left = 1
     right = 2
     forward = 3
-    build = 4
+    toggle = 4
+
 
 class MultiGridEnv(gym.Env):
     """
@@ -887,18 +569,12 @@ class MultiGridEnv(gym.Env):
             width=None,
             height=None,
             max_steps=100,
-            see_through_walls=False,
             seed=2,
             agents=None,
-            partial_obs=True,
-            agent_view_size=7,
             actions_set=Actions,
             objects_set = World
     ):
         self.agents = agents
-
-        # Does the agents have partial or full observation?
-        self.partial_obs = partial_obs
 
         # Can't set both grid_size and width/height
         if grid_size:
@@ -912,23 +588,14 @@ class MultiGridEnv(gym.Env):
         # Actions are discrete integer values
         self.action_space = spaces.Discrete(len(self.actions.available))
 
-        self.objects=objects_set
+        self.objects = objects_set
 
-        if partial_obs:
-            self.observation_space = spaces.Box(
-                low=0,
-                high=255,
-                shape=(agent_view_size, agent_view_size, self.objects.encode_dim),
-                dtype='uint8'
-            )
-
-        else:
-            self.observation_space = spaces.Box(
-                low=0,
-                high=255,
-                shape=(width, height, self.objects.encode_dim),
-                dtype='uint8'
-            )
+        self.observation_space = spaces.Box(
+            low=0,
+            high=255,
+            shape=(width, height, ENCODE_DIM),
+            dtype='uint8'
+        )
 
         self.ob_dim = np.prod(self.observation_space.shape)
         self.ac_dim = self.action_space.n
@@ -943,7 +610,6 @@ class MultiGridEnv(gym.Env):
         self.width = width
         self.height = height
         self.max_steps = max_steps
-        self.see_through_walls = see_through_walls
 
         # Initialize the RNG
         self.seed(seed=seed)
@@ -951,12 +617,12 @@ class MultiGridEnv(gym.Env):
         # Initialize the state
         self.reset()
 
-    def reset(self):
+    def reset(self, configuration=None):
 
         # Generate a new random grid at the start of each episode
         # To keep the same grid for each episode, call env.seed() with
         # the same seed before calling env.reset()
-        self._gen_grid(self.width, self.height)
+        self._gen_grid(configuration)
 
         # These fields should be defined by _gen_grid
         for a in self.agents:
@@ -971,12 +637,13 @@ class MultiGridEnv(gym.Env):
         self.step_count = 0
 
         # Return first observation
-        if self.partial_obs:
-            obs = self.gen_obs()
+
+        obs = [self.grid.encode(self.objects) for i in range(len(self.agents))]
+
+        if len(obs)==1:
+            return obs[0]
         else:
-            obs = [self.grid.encode_for_agents(self.agents[i].pos) for i in range(len(self.agents))]
-        obs=[self.objects.normalize_obs*ob for ob in obs]
-        return obs
+            return obs
 
     def seed(self, seed=1337):
         # Seed the random number generator
@@ -1066,7 +733,7 @@ class MultiGridEnv(gym.Env):
     def _handle_switch(self, i, rewards, fwd_pos, fwd_cell):
         pass
 
-    def _reward(self, current_agent, rewards, reward=1):
+    def _reward(self):
         """
         Compute the reward to be given upon success
         """
@@ -1137,20 +804,20 @@ class MultiGridEnv(gym.Env):
             self.np_random.randint(yLow, yHigh)
         )
 
-    def place_obj(self,
-                  obj,
-                  top=None,
-                  size=None,
-                  reject_fn=None,
-                  max_tries=math.inf
-                  ):
-        """
-        Place an object at an empty position in the grid
+    def position_is_possible(self, pos, reject_fn=None):
+        # Don't place the object on top of another object
+        # TODO modify this to allow multiple objects/agent in the same place
+        if self.grid.get(*pos) != None:
+            return False
 
-        :param top: top-left position of the rectangle where to place
-        :param size: size of the rectangle where to place
-        :param reject_fn: function to filter out potential positions
-        """
+        # Check if there is a filtering criterion
+        elif reject_fn and reject_fn(self, pos):
+            return False
+
+        else:
+            return True
+
+    def get_possible_location(self, top=None, size=None, reject_fn=None, max_tries=1000):
 
         if top is None:
             top = (0, 0)
@@ -1175,15 +842,26 @@ class MultiGridEnv(gym.Env):
                 self._rand_int(top[1], min(top[1] + size[1], self.grid.height))
             ))
 
-            # Don't place the object on top of another object
-            if self.grid.get(*pos) != None:
-                continue
+            if self.position_is_possible(pos, reject_fn):
+                break
 
-            # Check if there is a filtering criterion
-            if reject_fn and reject_fn(self, pos):
-                continue
+        return pos
 
-            break
+    def place_obj(self,
+        obj,
+        top=None,
+        size=None,
+        reject_fn=None
+    ):
+        """
+        Place an object at an empty position in the grid
+
+        :param top: top-left position of the rectangle where to place
+        :param size: size of the rectangle where to place
+        :param reject_fn: function to filter out potential positions
+        """
+
+        pos = self.get_possible_location(top, size, reject_fn)
 
         self.grid.set(*pos, obj)
 
@@ -1215,7 +893,7 @@ class MultiGridEnv(gym.Env):
         """
 
         agent.pos = None
-        pos = self.place_obj(agent, top, size, max_tries=max_tries)
+        pos = self.place_obj(agent, top, size)
         agent.pos = pos
         agent.init_pos = pos
 
@@ -1226,24 +904,12 @@ class MultiGridEnv(gym.Env):
 
         return pos
 
-    def agent_sees(self, a, x, y):
-        """
-        Check if a non-empty grid position is visible to the agent
-        """
-
-        coordinates = a.relative_coords(x, y)
-        if coordinates is None:
-            return False
-        vx, vy = coordinates
-
-        obs = self.gen_obs()
-        obs_grid, _ = Grid.decode(obs['image'])
-        obs_cell = obs_grid.get(vx, vy)
-        world_cell = self.grid.get(x, y)
-
-        return obs_cell is not None and obs_cell.type == world_cell.type
 
     def step(self, actions):
+
+        if not isinstance(actions, list):
+            actions = [actions]
+
         self.step_count += 1
 
         order = np.random.permutation(len(actions))
@@ -1277,110 +943,86 @@ class MultiGridEnv(gym.Env):
                 if fwd_cell is not None:
                     if fwd_cell.type == 'goal':
                         done = True
-                        self._reward(i, rewards, 1)
+                        rewards[i] = self._reward()
+                    elif fwd_cell.can_overlap():
+                        self.grid.set(*fwd_pos, self.agents[i])
+                        self.grid.set(*self.agents[i].pos, None)
+                        self.agents[i].pos = fwd_pos
                     elif fwd_cell.type == 'switch':
-                        self._handle_switch(i, rewards, fwd_pos, fwd_cell)
-                elif fwd_cell is None or fwd_cell.can_overlap():
+                        raise NotImplementedError
+                        #self._handle_switch(i, rewards, fwd_pos, fwd_cell)
+                elif fwd_cell is None:
                     self.grid.set(*fwd_pos, self.agents[i])
                     self.grid.set(*self.agents[i].pos, None)
                     self.agents[i].pos = fwd_pos
-                self._handle_special_moves(i, rewards, fwd_pos, fwd_cell)
-
-            elif 'build' in self.actions.available and actions[i]==self.actions.build:
-                self._handle_build(i, rewards, fwd_pos, fwd_cell)
-
-            # Pick up an object
-            elif actions[i] == self.actions.pickup:
-                self._handle_pickup(i, rewards, fwd_pos, fwd_cell)
-
-            # Drop an object
-            elif actions[i] == self.actions.drop:
-                self._handle_drop(i, rewards, fwd_pos, fwd_cell)
 
             # Toggle/activate an object
             elif actions[i] == self.actions.toggle:
                 if fwd_cell:
                     fwd_cell.toggle(self, fwd_pos)
 
-            # Done action (not used by default)
-            elif actions[i] == self.actions.done:
-                pass
-
-            else:
-                assert False, "unknown action"
-
         if self.step_count >= self.max_steps:
             done = True
 
-        if self.partial_obs:
-            obs = self.gen_obs()
+        obs = [self.grid.encode(self.world) for i in range(len(self.agents))]
+
+        if len(obs) == 1:
+            assert len(rewards) == 1
+
+            return obs[0], rewards[0], done, {}
         else:
-            obs = [self.grid.encode_for_agents(self.agents[i].pos) for i in range(len(actions))]
+            return obs, rewards, done, {}
 
-        obs=[self.objects.normalize_obs*ob for ob in obs]
-
-        return obs, rewards, done, {}
-
-    def gen_obs_grid(self):
-        """
-        Generate the sub-grid observed by the agents.
-        This method also outputs a visibility mask telling us which grid
-        cells the agents can actually see.
-        """
-
-        grids = []
-        vis_masks = []
-
-        for a in self.agents:
-
-            topX, topY, botX, botY = a.get_view_exts()
-
-            grid = self.grid.slice(self.objects, topX, topY, a.view_size, a.view_size)
-
-            for i in range(a.dir + 1):
-                grid = grid.rotate_left()
-
-            # Process occluders and visibility
-            # Note that this incurs some performance cost
-            if not self.see_through_walls:
-                vis_mask = grid.process_vis(agent_pos=(a.view_size // 2, a.view_size - 1))
-            else:
-                vis_mask = np.ones(shape=(grid.width, grid.height), dtype=np.bool)
-
-            grids.append(grid)
-            vis_masks.append(vis_mask)
-
-        return grids, vis_masks
-
-    def gen_obs(self):
-        """
-        Generate the agent's view (partially observable, low-resolution encoding)
-        """
-
-        grids, vis_masks = self.gen_obs_grid()
-
-        # Encode the partially observable view into a numpy array
-        obs = [grid.encode_for_agents(self.objects, [grid.width // 2, grid.height - 1], vis_mask) for grid, vis_mask in zip(grids, vis_masks)]
-
-        return obs
+    # def gen_obs_grid(self):
+    #     """
+    #     Generate the sub-grid observed by the agents.
+    #     This method also outputs a visibility mask telling us which grid
+    #     cells the agents can actually see.
+    #     """
+    #
+    #     grids = []
+    #
+    #     for a in self.agents:
+    #
+    #         topX, topY, botX, botY = a.get_view_exts()
+    #
+    #         grid = self.grid.slice(self.objects, topX, topY, a.view_size, a.view_size)
+    #
+    #         for i in range(a.dir + 1):
+    #             grid = grid.rotate_left()
+    #
+    #         grids.append(grid)
+    #
+    #     return grids
+    #
+    # def gen_obs(self):
+    #     """
+    #     Generate the agent's view (partially observable, low-resolution encoding)
+    #     """
+    #
+    #     grids = self.gen_obs_grid()
+    #
+    #     # Encode the partially observable view into a numpy array
+    #     obs = [grid.encode_for_agents(self.objects, [grid.width // 2, grid.height - 1]) for grid in zip(grids)]
+    #
+    #     return obs
 
     def get_obs_render(self, obs, tile_size=TILE_PIXELS // 2):
         """
         Render an agent observation for visualization
         """
 
-        grid, vis_mask = Grid.decode(obs)
+        grid = Grid.decode(obs)
 
         # Render the whole grid
         img = grid.render(
             self.objects,
-            tile_size,
-            highlight_mask=vis_mask
+            tile_size
         )
 
         return img
 
-    def render(self, mode='human', close=False, highlight=False, tile_size=TILE_PIXELS):
+    def render(self, mode='human', close=False, tile_size=TILE_PIXELS):
         """
         Render the whole-grid human view
         """
@@ -1394,49 +1036,23 @@ class MultiGridEnv(gym.Env):
             self.window = Window('gym_multigrid')
             self.window.show(block=False)
 
-        if highlight:
-
-            # Compute which cells are visible to the agent
-            _, vis_masks = self.gen_obs_grid()
-
-            highlight_masks = {(i, j): [] for i in range(self.width) for j in range(self.height)}
-
-            for i, a in enumerate(self.agents):
-
-                # Compute the world coordinates of the bottom-left corner
-                # of the agent's view area
-                f_vec = a.dir_vec
-                r_vec = a.right_vec
-                top_left = a.pos + f_vec * (a.view_size - 1) - r_vec * (a.view_size // 2)
-
-                # Mask of which cells to highlight
-
-                # For each cell in the visibility mask
-                for vis_j in range(0, a.view_size):
-                    for vis_i in range(0, a.view_size):
-                        # If this cell is not visible, don't highlight it
-                        if not vis_masks[i][vis_i, vis_j]:
-                            continue
-
-                        # Compute the world coordinates of this cell
-                        abs_i, abs_j = top_left - (f_vec * vis_j) + (r_vec * vis_i)
-
-                        if abs_i < 0 or abs_i >= self.width:
-                            continue
-                        if abs_j < 0 or abs_j >= self.height:
-                            continue
-
-                        # Mark this cell to be highlighted
-                        highlight_masks[abs_i, abs_j].append(i)
-
         # Render the whole grid
         img = self.grid.render(
             self.objects,
-            tile_size,
-            highlight_masks=highlight_masks if highlight else None
+            tile_size
         )
 
         if mode == 'human':
             self.window.show_img(img)
 
         return img
+
+    def render_blank_image(self):
+        if self.window:
+            white_image = np.ones((self.grid.height * TILE_PIXELS, self.grid.width * TILE_PIXELS, 3))
+            self.window.show_img(white_image)
+
+    def close(self):
+        if self.window:
+            self.window.close()
+        return
