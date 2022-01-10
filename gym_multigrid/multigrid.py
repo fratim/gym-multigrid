@@ -8,24 +8,32 @@ from .rendering import *
 from .window import Window
 import numpy as np
 import copy
+import pickle
 
 #
-ENCODE_DIM = 3
+ENCODE_DIM = 6
 
 # Size in pixels of a tile in the full-scale human view
 TILE_PIXELS = 32
+
+
+agent_0_impaired = True
+
 
 # Map of color names to RGB values
 COLORS = {
     'red': np.array([255, 0, 0]),
     'green': np.array([0, 255, 0]),
-    'blue': np.array([0, 0, 255]),
-    'purple': np.array([112, 39, 195]),
-    'yellow': np.array([255, 255, 0]),
     'grey': np.array([100, 100, 100])
 }
 
 COLOR_NAMES = sorted(list(COLORS.keys()))
+
+def three_digit_encoding(type, color, specification):
+
+    encoding = type*100 + color*10 + specification
+
+    return int(encoding)
 
 class World:
 
@@ -33,10 +41,7 @@ class World:
     COLOR_TO_IDX = {
         'red': 0,
         'green': 1,
-        'blue': 2,
-        'purple': 3,
-        'yellow': 4,
-        'grey': 5
+        'grey': 2,
     }
 
     IDX_TO_COLOR = dict(zip(COLOR_TO_IDX.values(), COLOR_TO_IDX.keys()))
@@ -44,13 +49,11 @@ class World:
     # Map of object type to integers
     # evaluate whther it makes sense that each agent has its own "type encoding" to maintain 3-dim encoding structure
     OBJECT_TO_IDX = {
-        'unseen': 0,
-        'empty': 1,
-        'wall': 2,
-        'door': 3,
-        'box': 4,
-        'goal': 5,
-        'agent': 6
+        'wall': 0,
+        'door': 1,
+        'box': 2,
+        'goal': 3,
+        'agent': 4
     }
     IDX_TO_OBJECT = dict(zip(OBJECT_TO_IDX.values(), OBJECT_TO_IDX.keys()))
 
@@ -115,7 +118,7 @@ class WorldObj:
 
     def encode(self, world):
         """Encode the a description of this object as a 3-tuple of integers"""
-        return np.array((world.OBJECT_TO_IDX[self.type], world.COLOR_TO_IDX[self.color], 0))
+        return three_digit_encoding(world.OBJECT_TO_IDX[self.type], world.COLOR_TO_IDX[self.color], 0)
 
     @staticmethod
     def decode(type_idx, color_idx, state):
@@ -198,7 +201,7 @@ class Box(WorldObj):
     def encode(self, world):
         """Encode the a description of this object as a 3-tuple of integers"""
 
-        return np.array((world.OBJECT_TO_IDX[self.type], world.COLOR_TO_IDX[self.color], self.strength))
+        return three_digit_encoding(world.OBJECT_TO_IDX[self.type], world.COLOR_TO_IDX[self.color], self.strength)
 
 
 class Agent(WorldObj):
@@ -226,7 +229,7 @@ class Agent(WorldObj):
 
     def encode(self, world):
         """Encode the a description of this object as a 3-tuple of integers"""
-        return np.array((world.OBJECT_TO_IDX[self.type], world.COLOR_TO_IDX[self.color], self.dir))
+        return three_digit_encoding(world.OBJECT_TO_IDX[self.type], world.COLOR_TO_IDX[self.color], self.dir)
 
     @property
     def dir_vec(self):
@@ -337,6 +340,7 @@ class Agent(WorldObj):
         """
         return True
 
+
 class GridCell:
     value = None
 
@@ -363,6 +367,8 @@ class GridCell:
 
         self.value.append(obj)
 
+        assert len(self.value) <= 2
+
     def can_overlap(self):
         for item in self.value:
             if not item.can_overlap():
@@ -387,24 +393,82 @@ class GridCell:
             item.toggle()
 
 
-    def encode(self, world):
-        # TODO ensure that cells are always encoded independently of order in which objects are stored (order is not relevant)
-        # TODO implement this for three overlapping objects (2 agents + box)
+    def encode(self, world, current_agent=None):
 
-        if len(self.value) == 0:
-            return (world.OBJECT_TO_IDX['empty'], 0, 0)
-        else:
-            encoding = self.value[0].encode(world)
-            assert not (encoding > 10).any()
-            encoding *= 10
+        assert len(self.value) <= 2
 
-            if len(self.value) == 1:
-                return tuple(encoding)
-            elif len(self.value) == 2:
-                encoding += self.value[1].encode(world)
-                return tuple(encoding)
-            else:
-                raise NotImplementedError
+        encoding = np.ones((ENCODE_DIM//3,), dtype=np.int64)*99999
+
+        for i, obj in enumerate(self.value):
+
+            if current_agent is not None and isinstance(obj, Agent) and obj.index != current_agent:
+                continue
+
+            encoding[i] = obj.encode(world)
+
+        encoding = np.sort(encoding)
+        encoding[np.argwhere(encoding == 99999)] = 0
+
+        final_encoding = []
+
+        for i in range(encoding.shape[0]):
+            nstring = str(encoding[i]).zfill(3)
+            nstrings = [int(nstring[i]) for i in range(len(nstring))]
+            final_encoding += nstrings
+
+        return tuple(final_encoding)
+
+        # encoding = [int(entry) for entry in range(len(encoding))]
+        #
+        # return tuple(encoding[:])
+        #
+        # if len(self.value) == 0:
+        #     return tuple((0, 0, 0))
+        #
+        # assert len(self.value) <= 1
+        # encoding = str(self.value[0].encode(world)).zfill(3)
+        # encoding = tuple((int(encoding[0]), int(encoding[1]), int(encoding[2])))
+        # return encoding
+
+        #
+        # if len(self.value) == 0:
+        #     return (world.OBJECT_TO_IDX['empty'], 0, 0) # should be multiplied by 10 TODO fix bug
+        #
+        # if current_agent is not None and isinstance(self.value[0], Agent):
+        #     if self.value[0].index == current_agent:
+        #         encoding = self.value[0].encode(world) * 10
+        #     else:
+        #         encoding = np.array((world.OBJECT_TO_IDX['empty'], 0, 0))
+        # else:
+        #     encoding = self.value[0].encode(world)*10
+        #
+        # if len(self.value) == 1:
+        #     return tuple(encoding)
+        #
+        # if current_agent is not None and isinstance(self.value[1], Agent):
+        #     if self.value[1].index == current_agent:
+        #         encoding += self.value[1].encode(world)
+        #     else:
+        #         encoding += np.array((0, 0, 0))
+        # else:
+        #     encoding = self.value[1].encode(world)
+        #
+        # return tuple(encoding)
+
+        # if len(self.value) == 0:
+        #     return (world.OBJECT_TO_IDX['empty'], 0, 0)
+        # else:
+        #     encoding = self.value[0].encode(world)
+        #     assert not (encoding > 10).any()
+        #     encoding *= 10
+        #
+        #     if len(self.value) == 1:
+        #         return tuple(encoding)
+        #     elif len(self.value) == 2:
+        #         encoding += self.value[1].encode(world)
+        #         return tuple(encoding)
+        #     else:
+        #         raise NotImplementedError
 
 
 
@@ -481,10 +545,10 @@ class Grid:
         assert j >= 0 and j < self.height
         return self.grid[j * self.width + i]
 
-    def encode_cell(self, i, j, world):
+    def encode_cell(self, i, j, world, current_agent=None):
         assert i >= 0 and i < self.width
         assert j >= 0 and j < self.height
-        return self.grid[j * self.width + i].encode(world)
+        return self.grid[j * self.width + i].encode(world, current_agent)
 
     def horz_wall(self, world, x, y, length=None, obj_type=Wall):
         if length is None:
@@ -611,7 +675,7 @@ class Grid:
 
         return img
 
-    def encode(self, world):
+    def encode(self, world, current_agent=None):
         """
         Produce a compact numpy encoding of the grid
         """
@@ -621,7 +685,7 @@ class Grid:
 
         for i in range(self.width):
             for j in range(self.height):
-                array[i, j, :] = self.encode_cell(i, j, world)
+                array[i, j, :] = self.encode_cell(i, j, world, current_agent=current_agent)
 
         return array
 
@@ -654,13 +718,15 @@ class MultiGridEnv(gym.Env):
             grid_size=None,
             width=None,
             height=None,
-            max_steps=100,
+            max_steps=20,
             seed=2,
             agents=None,
             actions_set=Actions,
             objects_set = World
     ):
         self.agents = agents
+
+        self.use_special_reward = False
 
         # Can't set both grid_size and width/height
         if grid_size:
@@ -680,7 +746,7 @@ class MultiGridEnv(gym.Env):
             low=0,
             high=255,
             shape=(width, height, ENCODE_DIM),
-            dtype='uint8'
+            dtype='uint8' # TODO revert this?
         )
 
         self.ob_dim = np.prod(self.observation_space.shape)
@@ -703,6 +769,15 @@ class MultiGridEnv(gym.Env):
         # Initialize the state
         self.reset()
 
+        self.special_rewards = self.read_special_rewards()
+
+    def read_special_rewards(self):
+        fname = "/Users/tim/Code/blocks/rl-starter-files/storage/box4/v2-s9-ppo_box4g9/mean_values.pickle"
+        with open(fname, "rb") as output_file:
+            mean_values = pickle.load(output_file)
+
+        return mean_values
+
     def reset(self, configuration=None):
 
         # Generate a new random grid at the start of each episode
@@ -724,9 +799,9 @@ class MultiGridEnv(gym.Env):
 
         # Return first observation
 
-        obs = [self.grid.encode(self.objects) for i in range(len(self.agents))]
+        obs = [self.grid.encode(self.objects, current_agent=i) for i in range(len(self.agents))]
 
-        if len(obs)==1:
+        if len(obs) == 1:
             return obs[0]
         else:
             return obs
@@ -1005,7 +1080,8 @@ class MultiGridEnv(gym.Env):
 
         for i in order:
 
-            if self.agents[i].terminated or self.agents[i].paused or not self.agents[i].started or actions[i] == self.actions.still:
+            if self.agents[i].terminated or self.agents[i].paused or not self.agents[i].started:
+                assert False
                 continue
 
             # Get the position in front of the agent
@@ -1043,10 +1119,14 @@ class MultiGridEnv(gym.Env):
             elif actions[i] == self.actions.toggle:
                 fwd_cell.toggle()
 
+
         if self.step_count >= self.max_steps:
             done = True
 
-        obs = [self.grid.encode(self.world) for i in range(len(self.agents))]
+        obs = [self.grid.encode(self.world, current_agent=i) for i in range(len(self.agents))]
+
+        if self.use_special_reward:
+            rewards[i] = self.special_rewards[self.agents[i].pos[1], self.agents[i].pos[0], self.box_obj.strength]
 
         if len(obs) == 1:
             assert len(rewards) == 1

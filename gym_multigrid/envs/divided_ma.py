@@ -14,11 +14,12 @@ class MADivided(MultiGridEnv):
         height=None,
         agents_index=None,
         random_goals=True,
-        max_box_strength=1
+        max_box_strength=4
     ):
 
         self.random_goals = random_goals
         self.max_box_strength = max_box_strength
+        self.box_obj = None
 
         self.world = World
 
@@ -45,7 +46,8 @@ class MADivided(MultiGridEnv):
         box_strength = self.place_box(configuration)
 
         # determine and fix goal position
-        goal_pos = self.set_up_goal(configuration)
+        if not self.use_special_reward:
+            goal_pos = self.set_up_goal(configuration)
 
         # determine and fix agent position
         # self.set_up_agent(configuration)
@@ -66,8 +68,8 @@ class MADivided(MultiGridEnv):
                 box_strength = np.random.randint(0, self.max_box_strength+1)
 
             self.grid.set(int(self.width / 2), int(self.height / 2), None)
-            box_obj = Box(self.objects, color="blue", strength=box_strength)
-            self.put_obj(box_obj, int(self.width / 2), int(self.height / 2))
+            box_obj = Box(self.objects, color="red", strength=box_strength)
+            self.put_obj(box_obj, int(self.width / 2), int(self.height / 2)) # TODO revert
             self.box_obj = box_obj
 
         else:
