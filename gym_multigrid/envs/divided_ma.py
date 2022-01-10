@@ -9,7 +9,6 @@ class MADivided(MultiGridEnv):
     def __init__(
         self,
         size=None,
-        view_size=None,
         width=None,
         height=None,
         agents_index=None,
@@ -21,14 +20,11 @@ class MADivided(MultiGridEnv):
         self.max_box_strength = max_box_strength
         self.box_obj = None
 
-        self.world = World
-
         agents = []
         for i in agents_index:
-            agents.append(Agent(self.world, i, view_size=view_size))
+            agents.append(Agent(i))
 
         super().__init__(
-            grid_size=size,
             width=width,
             height=height,
             max_steps=20,
@@ -68,8 +64,8 @@ class MADivided(MultiGridEnv):
                 box_strength = np.random.randint(0, self.max_box_strength+1)
 
             self.grid.set(int(self.width / 2), int(self.height / 2), None)
-            box_obj = Box(self.objects, color="red", strength=box_strength)
-            self.put_obj(box_obj, int(self.width / 2), int(self.height / 2)) # TODO revert
+            box_obj = Box(color="red", strength=box_strength)
+            self.put_obj(box_obj, int(self.width / 2), int(self.height / 2))
             self.box_obj = box_obj
 
         else:
@@ -92,7 +88,7 @@ class MADivided(MultiGridEnv):
             else:
                 goal_pos = (self.width - 2, self.height - 2)
 
-        self.put_obj(Goal(self.objects, 1), *goal_pos)
+        self.put_obj(Goal(1), *goal_pos)
         self.goal_pos = goal_pos
 
         return goal_pos
@@ -107,10 +103,10 @@ class MADivided(MultiGridEnv):
 
     def set_up_walls(self):
         # Generate the surrounding walls
-        self.grid.wall_rect(self.objects, 0, 0, self.width, self.height)
+        self.grid.wall_rect(0, 0, self.width, self.height)
 
         # Create a vertical splitting wall
-        self.grid.vert_wall(self.objects, int(self.width / 2), 0)
+        self.grid.vert_wall(int(self.width / 2), 0)
 
     def step(self, actions):
         obs, rewards, done, info = MultiGridEnv.step(self, actions)
