@@ -1,6 +1,9 @@
 from gym_multigrid.multigrid import *
 from gym_multigrid.register import register
 
+from gym_multigrid.basegrid import Grid
+from gym_multigrid.objects import Agent, Box, Goal
+
 class MADivided(MultiGridEnv):
     """
     Environment in which the agents have to fetch the balls and drop them in their respective goals
@@ -8,7 +11,6 @@ class MADivided(MultiGridEnv):
 
     def __init__(
         self,
-        size=None,
         width=None,
         height=None,
         agents_index=None,
