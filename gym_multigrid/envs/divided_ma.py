@@ -11,10 +11,11 @@ class MADivided(MultiGridEnv):
 
     def __init__(
         self,
-        width=None,
-        height=None,
-        agents_index=None,
+        agents_index,
+        width=5,
+        height=5,
         random_goals=True,
+        max_steps=20,
         max_box_strength=4
     ):
 
@@ -29,7 +30,7 @@ class MADivided(MultiGridEnv):
         super().__init__(
             width=width,
             height=height,
-            max_steps=20,
+            max_steps=max_steps,
             agents=agents
         )
 
@@ -48,34 +49,23 @@ class MADivided(MultiGridEnv):
             goal_pos = self.set_up_goal(configuration)
 
         # determine and fix agent position
-        # self.set_up_agent(configuration)
-        # todo re-add agent setup
-
-        # Randomize the player start position and orientation
-        for a in self.agents:
-            self.place_agent(a)
+        for ag in self.agents:
+            self.set_up_agent(ag, configuration)
 
         # create mission statement
         self.mission = f"get to the goal by destroying the box of strength {box_strength}"
 
     def place_box(self, configuration):
-        if self.max_box_strength is not None:
-            if configuration and configuration.box_strength is not None:
-                box_strength = configuration.box_strength
-            else:
-                box_strength = np.random.randint(0, self.max_box_strength+1)
 
-            self.grid.set(int(self.width / 2), int(self.height / 2), None)
-            box_obj = Box(color="red", strength=box_strength)
-            self.put_obj(box_obj, int(self.width / 2), int(self.height / 2))
-            self.box_obj = box_obj
-
+        if configuration and configuration.box_strength is not None:
+            box_strength = configuration.box_strength
         else:
-            raise NotImplementedError
-            # # Place free cell in middle
-            # doorIdx = int(self.width / 2)
-            # self.grid.free_cell(doorIdx, doorIdx)
-            # box_strength = -1
+            box_strength = np.random.randint(0, self.max_box_strength+1)
+
+        self.grid.set(int(self.width / 2), int(self.height / 2), None)
+        box_obj = Box(color="red", strength=box_strength)
+        self.grid.add(int(self.width / 2), int(self.height / 2), box_obj)
+        self.box_obj = box_obj
 
         return box_strength
 
@@ -90,18 +80,17 @@ class MADivided(MultiGridEnv):
             else:
                 goal_pos = (self.width - 2, self.height - 2)
 
-        self.put_obj(Goal(1), *goal_pos)
+        self.grid.add(*goal_pos, Goal(1))
         self.goal_pos = goal_pos
 
         return goal_pos
 
-    def set_up_agent(self, configuration):
-        # Place the agent at a random position and orientation
-        if configuration and configuration.agent_pos is not None:
-            assert configuration.agent_dir is not None
-            self.place_agent_det(configuration.agent_pos, configuration.agent_dir)
+    def set_up_agent(self, ag, configuration):
+        if configuration and configuration.agent_pos[ag.index] is not None:
+            assert configuration.agent_dir[ag.index] is not None
+            self.place_agent(agent=ag, pos=configuration.agent_pos[ag.index], dir=configuration.agent_dir[ag.index])
         else:
-            self.place_agent()
+            self.place_agent(ag)
 
     def set_up_walls(self):
         # Generate the surrounding walls
@@ -117,17 +106,11 @@ class MADivided(MultiGridEnv):
 
 class SingleDivided5x5(MADivided):
     def __init__(self):
-        super().__init__(
-        height=5,
-        width=5,
-        agents_index=[0])
+        super().__init__(agents_index=[0])
 
 class MultiDivided5x5(MADivided):
     def __init__(self):
-        super().__init__(
-        height=5,
-        width=5,
-        agents_index=[0, 1])
+        super().__init__(agents_index=[0, 1])
 
 register(
             id='multigrid-1agents-divided-v0',

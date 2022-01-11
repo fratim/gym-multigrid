@@ -137,6 +137,14 @@ class Grid:
         assert j >= 0 and j < self.height
         return self.grid[j * self.width + i].encode(current_agent)
 
+    def move_object(self, obj, desired_pos):
+        # add object at new position
+        self.add(*desired_pos, obj)
+        # remove object at old position
+        self.remove(*obj.pos, obj)
+        # update position of object
+        obj.pos = desired_pos
+
     def horz_wall(self, x, y, length=None, obj_type=Wall):
         if length is None:
             length = self.width - x

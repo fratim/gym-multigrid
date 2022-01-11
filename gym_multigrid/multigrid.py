@@ -151,8 +151,7 @@ class MultiGridEnv(gym.Env):
 
 
     def position_is_possible(self, pos, reject_fn=None):
-        # Don't place the object on top of another object
-        # TODO modify this to allow multiple objects/agent in the same place
+        # do not initialiiy place mutiple objects into the same cell
         if self.grid.get(*pos) != None:
             return False
 
@@ -193,53 +192,39 @@ class MultiGridEnv(gym.Env):
 
         return pos
 
-    def place_obj(self,
-        obj,
-        top=None,
-        size=None,
-        reject_fn=None
-    ):
-        """
-        Place an object at an empty position in the grid
-
-        :param top: top-left position of the rectangle where to place
-        :param size: size of the rectangle where to place
-        :param reject_fn: function to filter out potential positions
-        """
-
-        pos = self.get_possible_location(top, size, reject_fn)
-
-        self.grid.add(*pos, obj)
-
-        return pos
-
-    def put_obj(self, obj, i, j):
-        """
-        Put an object at a specific position in the grid
-        """
-
-        self.grid.add(i, j, obj)
-
     def place_agent(
             self,
             agent,
             top=None,
             size=None,
-            rand_dir=True,
-            max_tries=math.inf
+            dir=None,
+            pos=None
     ):
         """
         Set the agent's starting point at an empty position in the grid
         """
 
+        # either position or top/size can be specified
+        if pos is not None:
+            assert top is None
+            assert size is None
+
+        if top is not None and size is not None:
+            assert pos is None
+
+        # determine and set position
         agent.pos = None
-        pos = self.place_obj(agent, top, size)
+        if pos is None:
+            pos = self.get_possible_location(top, size)
+
+        self.grid.add(*pos, agent)
         agent.pos = pos
 
-        if rand_dir:
-            agent.dir = self._rand_int(0, 4)
+        # determine and set direction
+        if dir is None:
+            dir = self._rand_int(0, 4)
 
-        agent.init_dir = agent.dir
+        agent.dir = dir
 
         return pos
 
@@ -260,8 +245,6 @@ class MultiGridEnv(gym.Env):
 
             # Get the position in front of the agent
             fwd_pos = self.agents[i].front_pos
-
-            # Get the contents of the cell in front of the agent
             fwd_cell = self.grid.get_cell(*fwd_pos)
 
             # Rotate left
@@ -281,13 +264,9 @@ class MultiGridEnv(gym.Env):
                         done = True
                         rewards[i] = self._reward()
                     elif fwd_cell.can_overlap():
-                        self.grid.add(*fwd_pos, self.agents[i])
-                        self.grid.remove(*self.agents[i].pos, self.agents[i])
-                        self.agents[i].pos = fwd_pos
-                elif fwd_cell.get() is None:
-                    self.grid.add(*fwd_pos, self.agents[i])
-                    self.grid.remove(*self.agents[i].pos, self.agents[i]) # TODO define a move agent function instead
-                    self.agents[i].pos = fwd_pos
+                        self.grid.move_object(self.agents[i], fwd_pos)
+                else:
+                    self.grid.move_object(self.agents[i], fwd_pos)
 
             # Toggle/activate an object
             elif actions[i] == self.actions.toggle:
@@ -297,15 +276,13 @@ class MultiGridEnv(gym.Env):
         if self.step_count >= self.max_steps:
             done = True
 
-        obs = [self.grid.encode(current_agent=agent.index) for agent in self.agents]
+        obs = self.make_observation()
 
         if self.use_special_reward:
             rewards[i] = self.special_rewards[self.agents[i].pos[1], self.agents[i].pos[0], self.box_obj.strength]
 
-        if len(obs) == 1:
-            assert len(rewards) == 1
-
-            return obs[0], rewards[0], done, {}
+        if len(rewards) == 1:
+            return obs, rewards[0], done, {}
         else:
             return obs, rewards, done, {}
 

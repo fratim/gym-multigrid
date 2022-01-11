@@ -69,7 +69,6 @@ class WorldObj:
         assert color in COLOR_TO_IDX, color
         self.type = type
         self.color = color
-        self.contains = None
 
     def can_overlap(self):
         """Can the agent overlap with this?"""
@@ -77,10 +76,6 @@ class WorldObj:
 
     def can_pickup(self):
         """Can the agent pick this up?"""
-        return False
-
-    def can_contain(self):
-        """Can this contain another object?"""
         return False
 
     def see_behind(self):
@@ -128,9 +123,8 @@ class Wall(WorldObj):
 
 
 class Box(WorldObj):
-    def __init__(self, color, contains=None, strength=2):
+    def __init__(self, color, strength):
         super(Box, self).__init__('box', color)
-        self.contains = contains
         self.strength = strength
 
         if self.strength == 0:
