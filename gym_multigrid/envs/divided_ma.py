@@ -104,17 +104,26 @@ class MADivided(MultiGridEnv):
         return obs, rewards, done, info
 
 
-class SingleDivided5x5(MADivided):
+class SingleDivided_Index0_5x5(MADivided):
     def __init__(self):
         super().__init__(agents_index=[0])
+
+class SingleDivided_Index1_5x5(MADivided):
+    def __init__(self):
+        super().__init__(agents_index=[1])
 
 class MultiDivided5x5(MADivided):
     def __init__(self):
         super().__init__(agents_index=[0, 1])
 
 register(
-            id='multigrid-1agents-divided-v0',
-            entry_point='gym_multigrid.envs:SingleDivided5x5',
+            id='multigrid-1agents-index0-divided-v0',
+            entry_point='gym_multigrid.envs:SingleDivided_Index0_5x5',
+        )
+
+register(
+            id='multigrid-1agents-index1-divided-v0',
+            entry_point='gym_multigrid.envs:SingleDivided_Index1_5x5',
         )
 
 register(
