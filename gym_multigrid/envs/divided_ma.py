@@ -63,7 +63,7 @@ class MADivided(MultiGridEnv):
             box_strength = np.random.randint(0, self.max_box_strength+1)
 
         self.grid.set(int(self.width / 2), int(self.height / 2), None)
-        box_obj = Box(color="red", strength=box_strength)
+        box_obj = Box(color="red", strength=box_strength, agents_that_can_toggle=[1])
         self.grid.add(int(self.width / 2), int(self.height / 2), box_obj)
         self.box_obj = box_obj
 
@@ -80,7 +80,7 @@ class MADivided(MultiGridEnv):
             else:
                 goal_pos = (self.width - 2, self.height - 2)
 
-        self.grid.add(*goal_pos, Goal(1))
+        self.grid.add(*goal_pos, Goal(1, for_agents_with_ind=[0]))
         self.goal_pos = goal_pos
 
         return goal_pos

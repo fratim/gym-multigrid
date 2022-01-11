@@ -35,6 +35,9 @@ class GridCell:
         assert len(self.value) <= 2
 
     def can_overlap(self):
+        if len(self.value) >= 2:
+            return False
+
         for item in self.value:
             if not item.can_overlap():
                 return False
@@ -47,15 +50,16 @@ class GridCell:
     def get(self):
         return self.value if self.value != [] else None
 
-    def isGoal(self):
+    def isGoal(self, ag):
         for item in self.value:
             if isinstance(item, Goal):
-                return True
+                if item.for_agent(ag):
+                    return True
         return False
 
-    def toggle(self):
+    def toggle(self, ag):
         for item in self.value:
-            item.toggle()
+            item.toggle(ag)
 
 
     def encode(self, current_agent=None):

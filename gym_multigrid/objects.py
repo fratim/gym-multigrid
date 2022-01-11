@@ -96,13 +96,22 @@ class WorldObj:
 
 
 class Goal(WorldObj):
-    def __init__(self, index, reward=1, color=None):
+    def __init__(self, index, reward=1, color=None, for_agents_with_ind=None):
         if color is None:
             super().__init__('goal', IDX_TO_COLOR[index])
         else:
             super().__init__('goal', IDX_TO_COLOR[color])
         self.index = index
         self.reward = reward
+        self.for_agents_with_ind = for_agents_with_ind
+
+    def for_agent(self, ag):
+        if self.for_agents_with_ind is None:
+            return True
+        elif ag.index in self.for_agents_with_ind:
+            return True
+        else:
+            return False
 
     def can_overlap(self):
         return True
@@ -123,9 +132,10 @@ class Wall(WorldObj):
 
 
 class Box(WorldObj):
-    def __init__(self, color, strength):
+    def __init__(self, color, strength, agents_that_can_toggle=None):
         super(Box, self).__init__('box', color)
         self.strength = strength
+        self.agents_that_can_toggle = agents_that_can_toggle
 
         if self.strength == 0:
             self.color = "green"
@@ -153,15 +163,19 @@ class Box(WorldObj):
         # Horizontal slit
         fill_coords(img, point_in_rect(0.16, 0.84, 0.47, 0.53), c)
 
-    def toggle(self):
-        # decrease strength of box
-        if self.strength > 0:
-            self.strength -= 1
+    def toggle(self, ag):
 
-        if self.strength == 0:
-            self.color = "green"
+        if self.agents_that_can_toggle is not None and ag.index not in self.agents_that_can_toggle:
+            return False
 
-        return True
+        else:
+            # decrease strength of box
+            if self.strength > 0:
+                self.strength -= 1
+
+            if self.strength == 0:
+                self.color = "green"
+            return True
 
     def encode(self):
         """Encode the a description of this object as a 3-tuple of integers"""

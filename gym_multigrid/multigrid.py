@@ -77,10 +77,11 @@ class MultiGridEnv(gym.Env):
         # Initialize the state
         self.reset()
 
-        self.special_rewards = self.read_special_rewards()
+        if self.use_special_reward:
+            self.special_rewards = self.read_special_rewards()
 
     def read_special_rewards(self):
-        fname = "/Users/tim/Code/blocks/rl-starter-files/storage/box4/v2-s9-ppo_box4g9/mean_values.pickle"
+        fname = "/Users/tim/Code/blocks/rl-starter-files/storage/reinvented_box4_v4/mean_values.pickle"
         with open(fname, "rb") as output_file:
             mean_values = pickle.load(output_file)
 
@@ -260,7 +261,7 @@ class MultiGridEnv(gym.Env):
             # Move forward
             elif actions[i] == self.actions.forward:
                 if fwd_cell is not None:
-                    if fwd_cell.isGoal():
+                    if fwd_cell.isGoal(self.agents[i]):
                         done = True
                         rewards[i] = self._reward()
                     elif fwd_cell.can_overlap():
@@ -270,7 +271,7 @@ class MultiGridEnv(gym.Env):
 
             # Toggle/activate an object
             elif actions[i] == self.actions.toggle:
-                fwd_cell.toggle()
+                fwd_cell.toggle(self.agents[i])
 
 
         if self.step_count >= self.max_steps:
@@ -279,7 +280,8 @@ class MultiGridEnv(gym.Env):
         obs = self.make_observation()
 
         if self.use_special_reward:
-            rewards[i] = self.special_rewards[self.agents[i].pos[1], self.agents[i].pos[0], self.box_obj.strength]
+            reward = self.special_rewards[self.agents[i].pos[1], self.agents[i].pos[0], self.box_obj.strength]**2
+            return obs, reward, done, {}
 
         if len(rewards) == 1:
             return obs, rewards[0], done, {}
